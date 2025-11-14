@@ -1,0 +1,53 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model VendorApplication {
+  id                         String   @id @default(cuid())
+  vendor_type                String   // "domestic" | "international"
+  company_name               String
+  business_type              String
+  tax_id                     String?  // domestic
+  vat_number                 String?  // international
+  country_of_incorporation   String?
+  primary_contact_name       String
+  primary_contact_email      String
+  primary_contact_phone      String?
+  business_address           String?
+  city                       String?
+  state                      String?
+  zip_code                   String?
+  country                    String
+  website                    String?
+  industry                   String
+  years_in_business          Int?
+  annual_revenue_range       String?
+  services_offered           String?
+  business_license_url       String?
+  tax_document_url           String?
+  insurance_certificate_url  String?
+  business_registration_url  String?
+  certificate_of_good_standing_url String?
+  bank_details_document_url  String?
+  import_export_license_url  String?
+  compliance_certificates_url String?
+  vat_registration_url       String?
+  bank_name                  String?
+  bank_account_number        String?
+  swift_code                 String?
+  iban                       String?
+  preferred_currency         String?
+
+  status                     String   // "draft" | "pending_review" | "under_review" | "approved" | "rejected" | "on_hold"
+  admin_notes                String?
+  rejection_reason           String?
+  approved_date              String?  // ISO date string
+
+  created_date               DateTime @default(now())
+  updated_at                 DateTime @updatedAt
+}
