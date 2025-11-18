@@ -7,8 +7,18 @@ generator client {
   provider = "prisma-client-js"
 }
 
+enum ApplicationStatus {
+  DRAFT
+  PENDING_REVIEW
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  ON_HOLD
+}
+
 model VendorApplication {
   id                         String   @id @default(cuid())
+  applicationCode            String   @unique // show to vendor
   vendor_type                String   // "domestic" | "international"
   company_name               String
   business_type              String
@@ -43,10 +53,10 @@ model VendorApplication {
   iban                       String?
   preferred_currency         String?
 
-  status                     String   // "draft" | "pending_review" | "under_review" | "approved" | "rejected" | "on_hold"
+  status                     ApplicationStatus @default(PENDING_REVIEW)
   admin_notes                String?
   rejection_reason           String?
-  approved_date              String?  // ISO date string
+  approved_date              DateTime?  // ISO date string
 
   created_date               DateTime @default(now())
   updated_at                 DateTime @updatedAt

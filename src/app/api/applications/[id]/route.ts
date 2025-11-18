@@ -1,5 +1,11 @@
 import { NextResponse } from "next/server";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import {
+  normalizeApprovedDate,
+  normalizeStatus,
+  serializeApplication,
+} from "../utils";
 
 type Params = { id: string };
 
@@ -19,7 +25,7 @@ export async function GET(
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    return NextResponse.json(application);
+    return NextResponse.json(serializeApplication(application));
   } catch (error) {
     console.error("GET /api/applications/[id] error:", error);
     return NextResponse.json(
@@ -35,11 +41,12 @@ export async function PATCH(
   { params }: { params: Promise<Params> }
 ) {
   try {
-    const body = await req.json();
+    const body = ((await req.json()) ?? {}) as Record<string, unknown>;
     const { id: paramId } = await params;
 
     // Prefer the id from the URL, but fall back to body.id
-    const id = paramId ?? body.id;
+    const bodyId = typeof body.id === "string" ? body.id : undefined;
+    const id = paramId ?? bodyId;
 
     if (!id) {
       return NextResponse.json(
@@ -49,20 +56,53 @@ export async function PATCH(
     }
 
     // Strip out fields we don't want to update directly
-    const {
-      id: _ignoreId,
-      created_date: _ignoreCreated,
-      updated_at: _ignoreUpdated,
-      approved_date: _ignoreApproved,
-      ...updateData
-    } = body;
+    const normalizedStatus = normalizeStatus(
+      typeof body.status === "string" ? body.status : undefined
+    );
+    const normalizedApprovedDate = normalizeApprovedDate(
+      typeof body.approved_date === "string" || body.approved_date instanceof Date
+        ? (body.approved_date as string | Date)
+        : undefined
+    );
+
+    const baseData: Record<string, unknown> = { ...body };
+    delete baseData.id;
+    delete baseData.created_date;
+    delete baseData.updated_at;
+    delete baseData.applicationCode;
+    delete baseData.status;
+    delete baseData.approved_date;
+
+    const data: Prisma.VendorApplicationUpdateInput = {
+      ...(baseData as Prisma.VendorApplicationUpdateInput),
+    };
+
+    if (normalizedStatus) {
+      data.status = normalizedStatus;
+      if (
+        normalizedApprovedDate === undefined &&
+        normalizedStatus === "APPROVED"
+      ) {
+        data.approved_date = new Date();
+      }
+      if (
+        normalizedApprovedDate === undefined &&
+        normalizedStatus !== "APPROVED"
+      ) {
+        data.approved_date = null;
+      }
+    }
+
+    if (normalizedApprovedDate !== undefined) {
+      data.approved_date = normalizedApprovedDate;
+    }
 
     const updated = await prisma.vendorApplication.update({
       where: { id },
-      data: updateData,
+      data,
     });
 
-    return NextResponse.json(updated);
+    return NextResponse.json(serializeApplication(updated));
   } catch (error) {
     console.error("PATCH /api/applications/[id] error:", error);
     return NextResponse.json(

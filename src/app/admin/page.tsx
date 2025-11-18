@@ -19,7 +19,9 @@ export default function AdminPage() {
   const { data: vendors = [], isLoading } = useQuery({
     queryKey: ["allVendors"],
     queryFn: async () => {
-      const res = await fetch("/api/applications", { cache: "no-store" });
+      const res = await fetch("/api/applications?includeAll=true", {
+        cache: "no-store",
+      });
       if (!res.ok) {
         throw new Error("Failed to load vendor applications");
       }

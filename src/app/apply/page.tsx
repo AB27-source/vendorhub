@@ -10,6 +10,7 @@ import ApplicationStatus from "@/components/vendor/ApplicationStatus";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   FileText,
   CheckCircle2,
@@ -30,6 +31,7 @@ type VendorStatus =
 type VendorApplication = VendorApplicationFormData & {
   id: string;
   created_date: string | Date;
+  applicationCode: string;
   admin_notes?: string | null;
   rejection_reason?: string | null;
 };
@@ -76,25 +78,124 @@ const statusConfig: Record<
 
 export default function ApplyPage() {
   const [showForm, setShowForm] = useState(false);
+  const [storedCode, setStoredCode] = useState<string | null>(() => {
+    if (typeof window !== "undefined") {
+      return window.localStorage.getItem("vendorApplicationCode");
+    }
+    return null;
+  });
+  const [storedEmail, setStoredEmail] = useState<string | null>(() => {
+    if (typeof window !== "undefined") {
+      return window.localStorage.getItem("vendorApplicationEmail");
+    }
+    return null;
+  });
+  const [lookupCode, setLookupCode] = useState("");
+  const [lookupEmail, setLookupEmail] = useState("");
+  const [lookupError, setLookupError] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
-  // Load all applications (for now: "my" application is just the first one)
-  const { data: applications = [], isLoading } = useQuery<VendorApplication[]>({
-    queryKey: ["vendorApplications"],
-    queryFn: async () => {
-      const res = await fetch("/api/applications", { cache: "no-store" });
-      if (!res.ok) {
-        throw new Error("Failed to load applications");
-      }
-      return res.json();
-    },
-  });
+  const persistApplicationAccess = (code: string, email: string) => {
+    const normalizedCode = code.trim();
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedCode || !normalizedEmail) return;
+    setStoredCode(normalizedCode);
+    setStoredEmail(normalizedEmail);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("vendorApplicationCode", normalizedCode);
+      window.localStorage.setItem("vendorApplicationEmail", normalizedEmail);
+    }
+    setLookupError(null);
+  };
 
-  const myApplication = applications[0] ?? null;
-  const hasApplication = !!myApplication;
+  const clearStoredAccess = (resetError = true) => {
+    setStoredCode(null);
+    setStoredEmail(null);
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem("vendorApplicationCode");
+      window.localStorage.removeItem("vendorApplicationEmail");
+    }
+    setLookupCode("");
+    setLookupEmail("");
+    if (resetError) {
+      setLookupError(null);
+    }
+  };
+
+  const hasStoredCredentials = Boolean(storedCode && storedEmail);
+
+  const { data: myApplication, isLoading: isApplicationLoading } =
+    useQuery<VendorApplication | null>({
+      queryKey: ["vendorApplication", storedCode, storedEmail],
+      queryFn: async () => {
+        if (!storedCode || !storedEmail) return null;
+        const params = new URLSearchParams({
+          code: storedCode,
+          email: storedEmail,
+        });
+        const res = await fetch(`/api/applications?${params.toString()}`, {
+          cache: "no-store",
+        });
+        if (res.status === 404) {
+          const missingCode = storedCode;
+          const missingEmail = storedEmail;
+          clearStoredAccess(false);
+          setLookupCode(missingCode ?? "");
+          setLookupEmail(missingEmail ?? "");
+          setLookupError(
+            "We couldn't find an application with that code and email. Please try again."
+          );
+          return null;
+        }
+        if (res.status === 400) {
+          clearStoredAccess(false);
+          setLookupError("Please provide both an application code and email.");
+          return null;
+        }
+        if (!res.ok) {
+          throw new Error("Failed to load application");
+        }
+        return res.json();
+      },
+      enabled: hasStoredCredentials,
+      retry: false,
+    });
+
+  const currentApplication = hasStoredCredentials ? myApplication : null;
+  const hasApplication = !!currentApplication;
+  const isInitialLoading = Boolean(
+    hasStoredCredentials && isApplicationLoading && !currentApplication
+  );
+
+  const handleLookupSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const trimmedCode = lookupCode.trim();
+    const trimmedEmail = lookupEmail.trim();
+    if (!trimmedCode || !trimmedEmail) {
+      setLookupError("Please enter both your application code and email.");
+      return;
+    }
+    persistApplicationAccess(trimmedCode, trimmedEmail);
+    setLookupCode("");
+    setLookupEmail("");
+  };
+
+  const handleUseDifferentCode = () => {
+    clearStoredAccess();
+    setShowForm(false);
+  };
+
+  const handleStartNewApplication = () => {
+    clearStoredAccess();
+    setShowForm(true);
+  };
 
   // Create new application
-  const createMutation = useMutation({
+  const createMutation = useMutation<
+    VendorApplication,
+    Error,
+    VendorApplicationFormData
+  >({
     mutationFn: async (data: VendorApplicationFormData) => {
       const res = await fetch("/api/applications", {
         method: "POST",
@@ -104,23 +205,28 @@ export default function ApplyPage() {
       if (!res.ok) {
         throw new Error("Failed to create application");
       }
-      return res.json();
+      return res.json() as Promise<VendorApplication>;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["vendorApplications"] });
+    onSuccess: (application) => {
+      persistApplicationAccess(
+        application.applicationCode,
+        application.primary_contact_email
+      );
+      queryClient.invalidateQueries({
+        queryKey: ["vendorApplication"],
+        exact: false,
+      });
       setShowForm(false);
     },
   });
 
   // Update existing application
-  const updateMutation = useMutation({
-    mutationFn: async ({
-      id,
-      data,
-    }: {
-      id: string;
-      data: VendorApplicationFormData;
-    }) => {
+  const updateMutation = useMutation<
+    VendorApplication,
+    Error,
+    { id: string; data: VendorApplicationFormData }
+  >({
+    mutationFn: async ({ id, data }) => {
       const res = await fetch(`/api/applications/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -129,10 +235,17 @@ export default function ApplyPage() {
       if (!res.ok) {
         throw new Error("Failed to update application");
       }
-      return res.json();
+      return res.json() as Promise<VendorApplication>;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["vendorApplications"] });
+    onSuccess: (application) => {
+      persistApplicationAccess(
+        application.applicationCode,
+        application.primary_contact_email
+      );
+      queryClient.invalidateQueries({
+        queryKey: ["vendorApplication"],
+        exact: false,
+      });
       setShowForm(false);
     },
   });
@@ -140,14 +253,14 @@ export default function ApplyPage() {
   const isSaving = createMutation.isPending || updateMutation.isPending;
 
   const handleSave = (data: VendorApplicationFormData) => {
-    if (myApplication) {
-      updateMutation.mutate({ id: myApplication.id, data });
+    if (currentApplication) {
+      updateMutation.mutate({ id: currentApplication.id, data });
     } else {
       createMutation.mutate(data);
     }
   };
 
-  if (isLoading) {
+  if (isInitialLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-slate-900" />
@@ -167,6 +280,47 @@ export default function ApplyPage() {
             Submit and manage your vendor onboarding application
           </p>
         </div>
+
+        {/* Lookup existing application */}
+        {!storedCode && !showForm && (
+          <Card className="bg-white/80 backdrop-blur-sm shadow-lg border-slate-200 mb-8">
+            <CardHeader className="border-b border-slate-100">
+              <CardTitle className="text-xl">Already submitted?</CardTitle>
+            </CardHeader>
+            <CardContent className="p-6">
+              <p className="text-slate-600 mb-4">
+                Enter your application code and the email used on the submission to view its status.
+              </p>
+              <form
+                className="flex flex-col gap-3 md:flex-row"
+                onSubmit={handleLookupSubmit}
+              >
+                <Input
+                  value={lookupCode}
+                  onChange={(event) => setLookupCode(event.target.value)}
+                  placeholder="Application Code"
+                  className="md:flex-1"
+                />
+                <Input
+                  type="email"
+                  value={lookupEmail}
+                  onChange={(event) => setLookupEmail(event.target.value)}
+                  placeholder="Email used on submission"
+                  className="md:flex-1"
+                />
+                <Button
+                  type="submit"
+                  className="bg-slate-900 text-white w-full md:w-auto"
+                >
+                  Check Status
+                </Button>
+              </form>
+              {lookupError && (
+                <p className="text-sm text-red-600 mt-3">{lookupError}</p>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Empty state */}
         {!hasApplication && !showForm && (
@@ -193,12 +347,37 @@ export default function ApplyPage() {
         )}
 
         {/* Existing application summary + status */}
-        {hasApplication && !showForm && (
+        {hasApplication && currentApplication && !showForm && (
           <div className="space-y-6 mb-8">
             <ApplicationStatus
-              application={myApplication}
+              application={currentApplication}
               statusConfig={statusConfig}
             />
+
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm text-slate-500">Application Code</p>
+                <p className="font-mono text-lg text-slate-900">
+                  {currentApplication.applicationCode}
+                </p>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Button
+                  variant="outline"
+                  onClick={handleUseDifferentCode}
+                  className="whitespace-nowrap"
+                >
+                  Enter Different Code
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={handleStartNewApplication}
+                  className="whitespace-nowrap"
+                >
+                  Start New Application
+                </Button>
+              </div>
+            </div>
 
             <Card className="bg-white/80 backdrop-blur-sm shadow-lg border-slate-200">
               <CardHeader className="border-b border-slate-100">
@@ -207,73 +386,73 @@ export default function ApplyPage() {
               <CardContent className="p-6">
                 <div className="grid md:grid-cols-2 gap-6">
                   <div>
-                    <p className="text-sm text-slate-500 mb-1">Company Name</p>
-                    <p className="font-semibold text-slate-900">
-                      {myApplication.company_name}
-                    </p>
-                  </div>
+                      <p className="text-sm text-slate-500 mb-1">Company Name</p>
+                      <p className="font-semibold text-slate-900">
+                      {currentApplication.company_name}
+                      </p>
+                    </div>
                   <div>
-                    <p className="text-sm text-slate-500 mb-1">Business Type</p>
-                    <p className="font-semibold text-slate-900 capitalize">
-                      {myApplication.business_type?.replace(/_/g, " ")}
-                    </p>
-                  </div>
+                      <p className="text-sm text-slate-500 mb-1">Business Type</p>
+                      <p className="font-semibold text-slate-900 capitalize">
+                      {currentApplication.business_type?.replace(/_/g, " ")}
+                      </p>
+                    </div>
                   <div>
-                    <p className="text-sm text-slate-500 mb-1">
-                      Primary Contact
-                    </p>
-                    <p className="font-semibold text-slate-900">
-                      {myApplication.primary_contact_name}
-                    </p>
-                  </div>
+                      <p className="text-sm text-slate-500 mb-1">
+                        Primary Contact
+                      </p>
+                      <p className="font-semibold text-slate-900">
+                      {currentApplication.primary_contact_name}
+                      </p>
+                    </div>
                   <div>
-                    <p className="text-sm text-slate-500 mb-1">Email</p>
-                    <p className="font-semibold text-slate-900">
-                      {myApplication.primary_contact_email}
-                    </p>
-                  </div>
+                      <p className="text-sm text-slate-500 mb-1">Email</p>
+                      <p className="font-semibold text-slate-900">
+                      {currentApplication.primary_contact_email}
+                      </p>
+                    </div>
                   <div>
-                    <p className="text-sm text-slate-500 mb-1">Industry</p>
-                    <p className="font-semibold text-slate-900 capitalize">
-                      {myApplication.industry}
-                    </p>
-                  </div>
+                      <p className="text-sm text-slate-500 mb-1">Industry</p>
+                      <p className="font-semibold text-slate-900 capitalize">
+                      {currentApplication.industry}
+                      </p>
+                    </div>
                   <div>
-                    <p className="text-sm text-slate-500 mb-1">
-                      Years in Business
-                    </p>
-                    <p className="font-semibold text-slate-900">
-                      {myApplication.years_in_business || "N/A"}{" "}
-                      {myApplication.years_in_business ? "years" : ""}
-                    </p>
+                      <p className="text-sm text-slate-500 mb-1">
+                        Years in Business
+                      </p>
+                      <p className="font-semibold text-slate-900">
+                      {currentApplication.years_in_business || "N/A"}{" "}
+                      {currentApplication.years_in_business ? "years" : ""}
+                      </p>
+                    </div>
                   </div>
-                </div>
 
-                {/* {myApplication.admin_notes && (
+                {/* {currentApplication.admin_notes && (
                   <div className="mt-6 p-4 bg-slate-50 rounded-lg border border-slate-200">
                     <p className="text-sm font-semibold text-slate-700 mb-2">
                       Admin Notes:
                     </p>
                     <p className="text-slate-600">
-                      {myApplication.admin_notes}
+                      {currentApplication.admin_notes}
                     </p>
                   </div>
                 )} */}
 
-                {myApplication.status === "rejected" &&
-                  myApplication.rejection_reason && (
+                {currentApplication.status === "rejected" &&
+                  currentApplication.rejection_reason && (
                     <div className="mt-6 p-4 bg-red-50 rounded-lg border border-red-200">
                       <p className="text-sm font-semibold text-red-700 mb-2">
                         Rejection Reason:
                       </p>
                       <p className="text-red-600">
-                        {myApplication.rejection_reason}
+                        {currentApplication.rejection_reason}
                       </p>
                     </div>
                   )}
 
-                {(myApplication.status === "draft" ||
-                  myApplication.status === "rejected") && (
+                {(currentApplication.status === "draft" ||
+                  currentApplication.status === "rejected") && (
                   <div className="mt-6">
                     <Button
                       onClick={() => setShowForm(true)}
@@ -291,7 +470,7 @@ export default function ApplyPage() {
         {/* Form (for new OR edit) */}
         {showForm && (
           <VendorApplicationForm
-            vendor={myApplication}
+            vendor={currentApplication}
             onSave={handleSave}
             onCancel={() => setShowForm(false)}
             isLoading={isSaving}

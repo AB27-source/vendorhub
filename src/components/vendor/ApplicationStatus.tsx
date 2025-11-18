@@ -28,6 +28,7 @@ type ApplicationStatusProps = {
   application: {
     status: VendorStatus;
     created_date: string | Date; // Prisma JSON will send a string
+    applicationCode?: string | null;
   };
   statusConfig: Record<string, StatusConfigEntry>; // keep flexible for now
 };
@@ -104,6 +105,7 @@ export default function ApplicationStatus({
             },
           )}
         </div>
+
       </CardContent>
     </Card>
   );

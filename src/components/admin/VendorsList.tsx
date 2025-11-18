@@ -25,6 +25,7 @@ type VendorStatus =
 
 export type VendorRow = {
   id: string;
+  applicationCode: string;
   company_name: string;
   business_type?: string | null;
   vendor_type: "domestic" | "international";
@@ -116,6 +117,7 @@ export default function VendorsList({
         <TableHeader>
           <TableRow className="bg-slate-50">
             <TableHead>Company</TableHead>
+            <TableHead>Application Code</TableHead>
             <TableHead>Type</TableHead>
             <TableHead>Contact</TableHead>
             <TableHead>Industry</TableHead>
@@ -145,6 +147,11 @@ export default function VendorsList({
                       {vendor.business_type?.replace(/_/g, " ")}
                     </p>
                   </div>
+                </TableCell>
+                <TableCell>
+                  <p className="font-mono text-sm text-slate-600">
+                    {vendor.applicationCode}
+                  </p>
                 </TableCell>
                 <TableCell>
                   <Badge
