@@ -33,6 +33,7 @@ export type VendorRow = {
   primary_contact_email: string;
   industry: string;
   created_date: string | Date;
+  approved_date?: string | Date | null;
   status: VendorStatus;
 };
 

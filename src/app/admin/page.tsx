@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 import StatsOverview from "@/components/admin/StatsOverview";
 import VendorsList from "@/components/admin/VendorsList";
+import VendorDirectory from "@/components/admin/VendorDirectory";
 import VendorReviewModal from "@/components/admin/VendorReviewModal";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,7 +13,12 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 export default function AdminPage() {
   const [selectedVendor, setSelectedVendor] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<"all" | "pending" | "approved" | "rejected">("all");
+  const [activeSection, setActiveSection] = useState<
+    "applications" | "vendors"
+  >("applications");
+  const [activeApplicationTab, setActiveApplicationTab] = useState<
+    "all" | "pending" | "approved" | "rejected"
+  >("all");
   const queryClient = useQueryClient();
 
   // Load all vendor applications
@@ -59,15 +65,17 @@ export default function AdminPage() {
   };
 
   // Filtered list based on tab
-  const filteredVendors =
-    activeTab === "all"
+  const filteredApplications =
+    activeApplicationTab === "all"
       ? vendors
       : vendors.filter((v: any) => {
-          if (activeTab === "pending") {
+          if (activeApplicationTab === "pending") {
             return v.status === "pending_review" || v.status === "under_review";
           }
-          return v.status === activeTab;
+          return v.status === activeApplicationTab;
         });
+
+  const approvedVendors = vendors.filter((v: any) => v.status === "approved");
 
   return (
     <div className="min-h-screen p-6 md:p-10">
@@ -78,47 +86,80 @@ export default function AdminPage() {
           <p className="text-slate-600">Review and manage vendor applications</p>
         </div>
 
-        {/* Stats cards */}
-        <StatsOverview stats={stats} />
+        <Tabs
+          value={activeSection}
+          onValueChange={(val) =>
+            setActiveSection(val as "applications" | "vendors")
+          }
+          className="space-y-6"
+        >
+          <TabsList className="bg-slate-100 w-fit">
+            <TabsTrigger value="applications" className="data-[state=active]:bg-white">
+              Applications
+            </TabsTrigger>
+            <TabsTrigger value="vendors" className="data-[state=active]:bg-white">
+              Vendors
+            </TabsTrigger>
+          </TabsList>
 
-        {/* Vendor table + tabs */}
-        <Card className="bg-white/80 backdrop-blur-sm shadow-lg border-slate-200">
-          <CardHeader className="border-b border-slate-100">
-            <CardTitle className="text-xl">Vendor Applications</CardTitle>
-          </CardHeader>
-          <CardContent className="p-6">
-            <Tabs
-              value={activeTab}
-              onValueChange={(val) =>
-                setActiveTab(val as "all" | "pending" | "approved" | "rejected")
-              }
-            >
-              <TabsList className="bg-slate-100 mb-6">
-                <TabsTrigger value="all" className="data-[state=active]:bg-white">
-                  All Applications
-                </TabsTrigger>
-                <TabsTrigger value="pending" className="data-[state=active]:bg-white">
-                  Pending
-                </TabsTrigger>
-                <TabsTrigger value="approved" className="data-[state=active]:bg-white">
-                  Approved
-                </TabsTrigger>
-                <TabsTrigger value="rejected" className="data-[state=active]:bg-white">
-                  Rejected
-                </TabsTrigger>
-              </TabsList>
+          <TabsContent value="applications" className="space-y-6">
+            <StatsOverview stats={stats} />
 
-              {/* We reuse the same list for all tabs, but feed it the filtered data */}
-              <TabsContent value={activeTab}>
-                <VendorsList
-                  vendors={filteredVendors}
+            <Card className="bg-white/80 backdrop-blur-sm shadow-lg border-slate-200">
+              <CardHeader className="border-b border-slate-100">
+                <CardTitle className="text-xl">Vendor Applications</CardTitle>
+              </CardHeader>
+              <CardContent className="p-6">
+                <Tabs
+                  value={activeApplicationTab}
+                  onValueChange={(val) =>
+                    setActiveApplicationTab(
+                      val as "all" | "pending" | "approved" | "rejected"
+                    )
+                  }
+                >
+                  <TabsList className="bg-slate-100 mb-6">
+                    <TabsTrigger value="all" className="data-[state=active]:bg-white">
+                      All Applications
+                    </TabsTrigger>
+                    <TabsTrigger value="pending" className="data-[state=active]:bg-white">
+                      Pending
+                    </TabsTrigger>
+                    <TabsTrigger value="approved" className="data-[state=active]:bg-white">
+                      Approved
+                    </TabsTrigger>
+                    <TabsTrigger value="rejected" className="data-[state=active]:bg-white">
+                      Rejected
+                    </TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value={activeApplicationTab}>
+                    <VendorsList
+                      vendors={filteredApplications}
+                      isLoading={isLoading}
+                      onSelectVendor={setSelectedVendor}
+                    />
+                  </TabsContent>
+                </Tabs>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="vendors">
+            <Card className="bg-white/80 backdrop-blur-sm shadow-lg border-slate-200">
+              <CardHeader className="border-b border-slate-100">
+                <CardTitle className="text-xl">Vendor Directory</CardTitle>
+              </CardHeader>
+              <CardContent className="p-6">
+                <VendorDirectory
+                  vendors={approvedVendors}
                   isLoading={isLoading}
                   onSelectVendor={setSelectedVendor}
                 />
-              </TabsContent>
-            </Tabs>
-          </CardContent>
-        </Card>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       </div>
 
       {/* Review modal */}
